@@ -93,6 +93,67 @@ def read_sheet(spreadsheet_id: str, range: str = "", sheet_name: str = "") -> st
 
 
 @mcp.tool()
+def filter_sheet(spreadsheet_id: str, keyword: str, column: str = "", sheet_name: str = "") -> str:
+    """Search rows in a Google Spreadsheet by keyword. Returns header + matching rows.
+
+    Args:
+        spreadsheet_id: Spreadsheet URL or ID
+        keyword: Search keyword (case-insensitive, partial match)
+        column: Column letter to search in (e.g. "D"). If empty, searches all columns.
+        sheet_name: Sheet/tab name. If empty, reads the first sheet.
+    """
+    creds = get_credentials()
+    service = build("sheets", "v4", credentials=creds)
+    sid = extract_spreadsheet_id(spreadsheet_id)
+
+    if not sheet_name:
+        meta = service.spreadsheets().get(spreadsheetId=sid).execute()
+        sheet_name = meta["sheets"][0]["properties"]["title"]
+
+    result = (
+        service.spreadsheets()
+        .values()
+        .get(spreadsheetId=sid, range=f"'{sheet_name}'")
+        .execute()
+    )
+    rows = result.get("values", [])
+    if not rows:
+        return "No data found."
+
+    # Determine column index if specified
+    col_idx = None
+    if column:
+        col_idx = 0
+        for ch in column.upper():
+            col_idx = col_idx * 26 + (ord(ch) - ord("A") + 1)
+        col_idx -= 1  # 0-based
+
+    keyword_lower = keyword.lower()
+    matched = []
+    for i, row in enumerate(rows):
+        if i < 3:  # Keep header rows
+            matched.append(row)
+            continue
+        if col_idx is not None:
+            if col_idx < len(row) and keyword_lower in str(row[col_idx]).lower():
+                matched.append(row)
+        else:
+            if any(keyword_lower in str(cell).lower() for cell in row):
+                matched.append(row)
+
+    if len(matched) <= 3:
+        return f"No rows matching '{keyword}' found."
+
+    lines = []
+    for i, row in enumerate(matched):
+        line = "| " + " | ".join(str(cell) for cell in row) + " |"
+        lines.append(line)
+        if i == 0:
+            lines.append("| " + " | ".join("---" for _ in row) + " |")
+    return f"Found {len(matched) - 3} matching row(s).\n\n" + "\n".join(lines)
+
+
+@mcp.tool()
 def list_sheets(spreadsheet_id: str) -> str:
     """List all sheet/tab names in a Google Spreadsheet.
 
