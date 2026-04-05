@@ -96,6 +96,24 @@ $GOOGLE_CREDENTIALS_DIR/
   token.json           # 認証済みトークン（自動生成・自動更新）
 ```
 
+## iCloudを共有している別Macでの導入
+
+同じApple IDでiCloudを同期している場合、GCPプロジェクト作成・OAuth設定・初回認証は不要。
+`client_secret.json` と `token.json` がiCloud経由で自動同期されるため、リポジトリのクローンとClaude Codeへの登録のみ行う。
+
+```bash
+# 1. リポジトリのクローンと依存パッケージのインストール
+git clone git@github.com:maccotsan/google-workspace-mcp.git ~/.claude/mcp-servers/google-workspace
+cd ~/.claude/mcp-servers/google-workspace
+python3.12 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+
+# 2. Claude Code に登録（デフォルトでiCloudの認証情報を参照する）
+claude mcp add -s user google-workspace -- ~/.claude/mcp-servers/google-workspace/.venv/bin/python3 ~/.claude/mcp-servers/google-workspace/server.py
+```
+
+Claude Code を再起動すれば使える。
+
 ## 別のGoogleアカウントを追加する場合
 
 1. GCPコンソール →「OAuth同意画面」→ テストユーザーにそのアカウントを追加
