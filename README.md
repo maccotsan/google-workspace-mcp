@@ -114,6 +114,22 @@ claude mcp add -s user google-workspace -- ~/.claude/mcp-servers/google-workspac
 
 Claude Code を再起動すれば使える。
 
+## 再認証（トークンが無効化された場合）
+
+`invalid_grant: Bad Request` 等のエラーでAPI呼び出しが失敗する場合、`reauth.sh` を実行する。
+
+```bash
+~/.claude/mcp-servers/google-workspace/reauth.sh
+```
+
+ブラウザが開くのでGoogleアカウントでログインし、アクセスを許可する。認証完了後、Claude Code を再起動すれば使えるようになる。
+
+`GOOGLE_CREDENTIALS_DIR` をデフォルトから変更している場合は、環境変数を設定してから実行する。
+
+```bash
+GOOGLE_CREDENTIALS_DIR=~/.config/google ~/.claude/mcp-servers/google-workspace/reauth.sh
+```
+
 ## 別のGoogleアカウントを追加する場合
 
 1. GCPコンソール →「OAuth同意画面」→ テストユーザーにそのアカウントを追加
