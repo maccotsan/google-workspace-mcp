@@ -1,7 +1,11 @@
 """Google Workspace MCP Server - Sheets & Docs reader using OAuth."""
 
+import io
 import os
 import re
+import shutil
+import urllib.request
+import zipfile
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -22,6 +26,8 @@ CREDENTIALS_DIR = Path(os.environ.get(
 ))
 CLIENT_SECRET_PATH = CREDENTIALS_DIR / "client_secret.json"
 TOKEN_PATH = CREDENTIALS_DIR / "token.json"
+
+IMAGE_DIR = Path.home() / "Library/Caches/google-workspace-mcp"
 
 mcp = FastMCP("google-workspace")
 
@@ -53,14 +59,51 @@ def extract_document_id(url_or_id: str) -> str:
     return match.group(1) if match else url_or_id
 
 
+def _extract_images(creds: Credentials, sid: str) -> list[Path]:
+    """Download the xlsx export and extract embedded images. Always fetches fresh
+    (no caching). Returns the list of extracted image paths, empty if the sheet
+    has no embedded images.
+    """
+    if not creds.token:
+        creds.refresh(Request())
+    url = f"https://docs.google.com/spreadsheets/d/{sid}/export?format=xlsx"
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {creds.token}"})
+    with urllib.request.urlopen(req) as resp:
+        data = resp.read()
+
+    out_dir = IMAGE_DIR / sid
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        media = [n for n in zf.namelist() if n.startswith("xl/media/")]
+        for n in media:
+            target = out_dir / Path(n).name
+            with zf.open(n) as src, open(target, "wb") as dst:
+                dst.write(src.read())
+    return sorted(out_dir.iterdir())
+
+
 @mcp.tool()
-def read_sheet(spreadsheet_id: str, range: str = "", sheet_name: str = "") -> str:
+def read_sheet(
+    spreadsheet_id: str,
+    range: str = "",
+    sheet_name: str = "",
+    include_images: bool = False,
+) -> str:
     """Read data from a Google Spreadsheet.
 
     Args:
         spreadsheet_id: Spreadsheet URL or ID
         range: Cell range like "A1:Z100". If empty, reads entire sheet.
         sheet_name: Sheet/tab name. If empty, reads the first sheet.
+        include_images: When True, downloads the spreadsheet as xlsx, extracts
+            embedded images (those pasted on top of cells, not =IMAGE() URLs)
+            to ~/Library/Caches/google-workspace-mcp/<fileId>/, and appends
+            their paths to the response. Every True call performs a fresh
+            download (no caching). Defaults to False — behavior is then
+            identical to the original tool.
     """
     creds = get_credentials()
     service = build("sheets", "v4", credentials=creds)
@@ -80,15 +123,28 @@ def read_sheet(spreadsheet_id: str, range: str = "", sheet_name: str = "") -> st
         .execute()
     )
     rows = result.get("values", [])
-    if not rows:
-        return "No data found."
 
-    lines = []
-    for i, row in enumerate(rows):
-        line = "| " + " | ".join(str(cell) for cell in row) + " |"
-        lines.append(line)
-        if i == 0:
-            lines.append("| " + " | ".join("---" for _ in row) + " |")
+    lines: list[str] = []
+    if rows:
+        for i, row in enumerate(rows):
+            lines.append("| " + " | ".join(str(cell) for cell in row) + " |")
+            if i == 0:
+                lines.append("| " + " | ".join("---" for _ in row) + " |")
+    else:
+        lines.append("No data found.")
+
+    if include_images:
+        try:
+            images = _extract_images(creds, sid)
+        except Exception as e:
+            lines.append(f"\n---\n(画像抽出に失敗: {type(e).__name__}: {e})")
+            return "\n".join(lines)
+        if images:
+            lines.append(f"\n---\n画像 ({len(images)} 枚):")
+            for p in images:
+                lines.append(f"- {p}")
+        else:
+            lines.append("\n---\n画像なし")
     return "\n".join(lines)
 
 
